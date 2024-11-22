@@ -66,10 +66,53 @@ impl CanDudeframe {
     }
 }
 
+enum SizeType {
+    SingleFrame,
+    Medium,
+    Large,
+}
+
+pub struct CanDudePacket<'a> {
+    pub data: &'a [u8],
+    pub sent_counter: u16,
+}
+
+impl<'a> CanDudePacket<'a>
+{
+    pub fn new<'b: 'a, T>(data: &'b T) -> Self where T: AsRef<[u8]> {
+        let data = data.as_ref();
+        Self { data, sent_counter: 0 }
+    }
+
+    pub fn size_type(&self) -> SizeType {
+        match self.data.len() {
+            ..  11 => SizeType::SingleFrame,
+            ..  63 => SizeType::Medium,
+            ..  637 => SizeType::Large,
+            _ => unreachable!()
+        }
+    }
+
+    pub fn pop(&mut self) -> Option<CanDudeframe> {
+        if self.sent_counter == 0 {
+            
+        }
+
+        None
+    }
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ttt() {
+        let mut d = [0u8; 200]; // Initialize all 200 elements with 0
+        d[0] = 1;               // Set the first element
+        d[1] = 23;              // Set the second element
+        let ss = CanDudePacket::new(&d);
+    }
 
     #[test]
     fn from_to_canbus() {
