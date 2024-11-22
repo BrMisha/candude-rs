@@ -5,3 +5,4 @@ edition = "2021"
 
 [dependencies]
 arrayvec = { version = "0.7.6", default-features = false }
+crc = "3.2.1"

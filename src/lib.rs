@@ -1,5 +1,7 @@
 #![cfg_attr(not(test), no_std)]
 
+use core::ops::Not;
+
 pub const MAX_FRAME_SIZE: usize = 10;
 
 
@@ -66,22 +68,23 @@ impl CanDudeframe {
     }
 }
 
-enum SizeType {
+pub enum SizeType {
     SingleFrame,
     Medium,
     Large,
 }
 
 pub struct CanDudePacket<'a> {
+    pub address: u8,
     pub data: &'a [u8],
-    pub sent_counter: u16,
+    pub sent_counter: usize,    // with len and crc
 }
 
 impl<'a> CanDudePacket<'a>
 {
-    pub fn new<'b: 'a, T>(data: &'b T) -> Self where T: AsRef<[u8]> {
+    pub fn new<'b: 'a, T>(address: u8, data: &'b T) -> Self where T: AsRef<[u8]> {
         let data = data.as_ref();
-        Self { data, sent_counter: 0 }
+        Self { address, data, sent_counter: 0 }
     }
 
     pub fn size_type(&self) -> SizeType {
@@ -94,9 +97,91 @@ impl<'a> CanDudePacket<'a>
     }
 
     pub fn pop(&mut self) -> Option<CanDudeframe> {
-        if self.sent_counter == 0 {
-            
-        }
+        const X25: crc::Crc<u16> = crc::Crc::<u16>::new(&crc::CRC_16_IBM_SDLC);
+
+        match self.size_type() {
+            SizeType::SingleFrame => {
+                (self.sent_counter < self.data.len()).then_some(())?;
+
+                let result = CanDudeframe {
+                    address: self.address,
+                    data: arrayvec::ArrayVec::try_from(self.data).ok()?,
+                    counter: Counter::Bytes(self.data.len() as u8),
+                    end_of_packet: true,
+                };
+
+                self.sent_counter = result.data.len();
+
+                result
+            }
+            SizeType::Medium => {
+                (self.sent_counter < self.data.len() + 2).then_some(())?;
+
+                let mut data = arrayvec::ArrayVec::try_from(&self.data[self.sent_counter..]).ok()?;
+                self.sent_counter += data.len();
+                let mut end_of_packet = false;
+
+                if data.capacity() - data.len() > 2 {
+                    let crc: [u8; 2] = X25.checksum(self.data).to_be_bytes();
+                    data.extend(crc);
+                    self.sent_counter += crc.len();
+                    end_of_packet = true;
+                }
+
+                CanDudeframe {
+                    address: self.address,
+                    data,
+                    counter: Counter::Bytes(self.sent_counter as u8),
+                    end_of_packet,
+                }
+            }
+            SizeType::Large => {
+                (self.sent_counter < self.data.len() + 4).then_some(())?;
+
+                //let mut data = arrayvec::ArrayVec::try_from(&self.data[self.sent_counter..]).ok()?;
+                let mut data = match self.sent_counter {
+                    0 => {
+                        let mut data = arrayvec::ArrayVec::new();
+                        let len: [u8; 2] = (self.data.len() as u16).to_be_bytes();
+                        data.extend(len);
+                        self.sent_counter += len.len();
+
+                        while data.len() < data.capacity() {
+                            data.push(self.data[self.sent_counter-2]);
+                            self.sent_counter += 1;
+                        }
+
+                        data
+                    },
+                    _ => {
+                        let data = arrayvec::ArrayVec::try_from(&self.data[(self.sent_counter-2)..]).ok()?;
+                        self.sent_counter += data.len();
+                        data
+                    }
+                };
+                ///DOOOOOO
+                //data.extend(&self.data[self.sent_counter..]);
+                data.try_extend_from_slice(self.data);
+
+                self.sent_counter += data.len();
+                let mut end_of_packet = false;
+
+                if data.capacity() - data.len() > 2 {
+                    let crc: [u8; 2] = X25.checksum(self.data).to_be_bytes();
+                    data.extend(crc);
+                    self.sent_counter += crc.len();
+                    end_of_packet = true;
+                }
+
+                CanDudeframe {
+                    address: self.address,
+                    data,
+                    counter: Counter::Bytes(self.sent_counter as u8),
+                    end_of_packet,
+                }
+            }
+        };
+
 
         None
     }
@@ -111,7 +196,7 @@ mod tests {
         let mut d = [0u8; 200]; // Initialize all 200 elements with 0
         d[0] = 1;               // Set the first element
         d[1] = 23;              // Set the second element
-        let ss = CanDudePacket::new(&d);
+        //let ss = CanDudePacket::new(&d);
     }
 
     #[test]
@@ -133,7 +218,7 @@ mod tests {
         assert_eq!(result.data[2], 1);
         assert_eq!(result.data[3], 2);
         assert_eq!(result.data[4], 3);
-        
+
         let result = result.to_canbus();
         assert_eq!(result.0 & 0b11111, 25);
         assert_eq!(result.0 >> 5 & 0b1, 1);
