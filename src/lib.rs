@@ -74,6 +74,7 @@ pub enum SizeType {
     Large,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CanDudePacket<'a> {
     pub address: u8,
     pub data: &'a [u8],
@@ -82,16 +83,18 @@ pub struct CanDudePacket<'a> {
 
 impl<'a> CanDudePacket<'a>
 {
-    pub fn new<'b: 'a, T>(address: u8, data: &'b T) -> Self where T: AsRef<[u8]> {
+    pub fn new<'b: 'a, T>(address: u8, data: &'b T) -> Option<Self> where T: AsRef<[u8]> {
         let data = data.as_ref();
-        Self { address, data, sent_counter: 0 }
+        (data.len() > 0).then_some(())?;
+
+        Some(Self { address, data, sent_counter: 0 })
     }
 
     pub fn size_type(&self) -> SizeType {
         match self.data.len() {
-            ..  11 => SizeType::SingleFrame,
-            ..  63 => SizeType::Medium,
-            ..  637 => SizeType::Large,
+            0..=  10 => SizeType::SingleFrame,
+            11..=  62 => SizeType::Medium,
+            63..=  636 => SizeType::Large,
             _ => unreachable!()
         }
     }
@@ -112,7 +115,7 @@ impl<'a> CanDudePacket<'a>
 
                 self.sent_counter = result.data.len();
 
-                result
+                Some(result)
             }
             SizeType::Medium => {
                 (self.sent_counter < self.data.len() + 2).then_some(())?;
@@ -128,12 +131,12 @@ impl<'a> CanDudePacket<'a>
                     end_of_packet = true;
                 }
 
-                CanDudeframe {
+                Some(CanDudeframe {
                     address: self.address,
                     data,
                     counter: Counter::Bytes(self.sent_counter as u8),
                     end_of_packet,
-                }
+                })
             }
             SizeType::Large => {
                 (self.sent_counter < self.data.len() + 4).then_some(())?;
@@ -178,12 +181,11 @@ impl<'a> CanDudePacket<'a>
                     data,
                     counter: Counter::Bytes(self.sent_counter as u8),
                     end_of_packet,
-                }
+                };
+
+                None
             }
-        };
-
-
-        None
+        }
     }
 }
 
@@ -197,6 +199,46 @@ mod tests {
         d[0] = 1;               // Set the first element
         d[1] = 23;              // Set the second element
         //let ss = CanDudePacket::new(&d);
+    }
+
+    #[test]
+    fn can_dude_packet_small() {
+        fn check(data: &[u8]) {
+            let mut p = CanDudePacket::new(12, &data).unwrap();
+            assert_eq!(p.pop(), Some(CanDudeframe {
+                address: 12,
+                data: arrayvec::ArrayVec::try_from(data).unwrap(),
+                counter: Counter::Bytes(data.len() as u8),
+                end_of_packet: true,
+            }));
+            assert_eq!(p.pop(), None);
+        }
+
+        assert_eq!(CanDudePacket::new(12, &[]), None);
+        check(&[1,2,3,4,5,6,7,8,9,10]);
+        check(&[1,2,3,4,5]);
+        check(&[1,2]);
+        check(&[1]);
+    }
+
+    #[test]
+    fn can_dude_packet_medium() {
+        /*fn check(data: &[u8]) {
+            let mut p = CanDudePacket::new(12, &data).unwrap();
+            assert_eq!(p.pop(), Some(CanDudeframe {
+                address: 12,
+                data: arrayvec::ArrayVec::try_from(data).unwrap(),
+                counter: Counter::Bytes(data.len() as u8),
+                end_of_packet: true,
+            }));
+            assert_eq!(p.pop(), None);
+        }
+
+        assert_eq!(CanDudePacket::new(12, &[]), None);
+        check(&[1,2,3,4,5,6,7,8,9,10]);
+        check(&[1,2,3,4,5]);
+        check(&[1,2]);
+        check(&[1]);*/
     }
 
     #[test]
