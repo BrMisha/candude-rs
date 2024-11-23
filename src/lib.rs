@@ -3,7 +3,7 @@
 use core::ops::Not;
 
 pub const MAX_FRAME_SIZE: usize = 10;
-
+const X25: crc::Crc<u16> = crc::Crc::<u16>::new(&crc::CRC_16_IBM_SDLC);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Counter {
@@ -68,6 +68,7 @@ impl CanDudeframe {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SizeType {
     SingleFrame,
     Medium,
@@ -100,8 +101,6 @@ impl<'a> CanDudePacket<'a>
     }
 
     pub fn pop(&mut self) -> Option<CanDudeframe> {
-        const X25: crc::Crc<u16> = crc::Crc::<u16>::new(&crc::CRC_16_IBM_SDLC);
-
         match self.size_type() {
             SizeType::SingleFrame => {
                 (self.sent_counter < self.data.len()).then_some(())?;
@@ -120,7 +119,9 @@ impl<'a> CanDudePacket<'a>
             SizeType::Medium => {
                 (self.sent_counter < self.data.len() + 2).then_some(())?;
 
-                let mut data = arrayvec::ArrayVec::try_from(&self.data[self.sent_counter..]).ok()?;
+                let end_index = (self.sent_counter + MAX_FRAME_SIZE).min(self.data.len());
+                let mut data = arrayvec::ArrayVec::try_from(&self.data[self.sent_counter..end_index]).ok()?;
+
                 self.sent_counter += data.len();
                 let mut end_of_packet = false;
 
@@ -205,20 +206,63 @@ mod tests {
     fn can_dude_packet_small() {
         fn check(data: &[u8]) {
             let mut p = CanDudePacket::new(12, &data).unwrap();
-            assert_eq!(p.pop(), Some(CanDudeframe {
-                address: 12,
-                data: arrayvec::ArrayVec::try_from(data).unwrap(),
-                counter: Counter::Bytes(data.len() as u8),
-                end_of_packet: true,
-            }));
-            assert_eq!(p.pop(), None);
+            match data.len() {
+                    0..=  10 => assert_eq!(p.size_type(), SizeType::SingleFrame),
+                    11..=  62 => assert_eq!(p.size_type(), SizeType::Medium),
+                    63..=  636 => assert_eq!(p.size_type(), SizeType::Large),
+                    _ => unreachable!()
+            };
+
+            match p.size_type() {
+                SizeType::SingleFrame => {
+                    assert_eq!(p.pop(), Some(CanDudeframe {
+                        address: 12,
+                        data: arrayvec::ArrayVec::try_from(data).unwrap(),
+                        counter: Counter::Bytes(data.len() as u8),
+                        end_of_packet: true,
+                    }));
+                    assert_eq!(p.pop(), None);
+                }
+                SizeType::Medium => {
+                    let mut res_data: std::vec::Vec<u8> = std::vec::Vec::new();
+
+                    let mut end_of_packet = false;
+                    while let Some(frame) = p.pop() {
+                        assert_eq!(end_of_packet, false);
+
+                        assert_eq!(frame.address, 12);
+                        res_data.extend(frame.data);
+                        assert_eq!(frame.counter, Counter::Bytes(res_data.len() as u8));
+
+                        if frame.end_of_packet {
+                            end_of_packet = true;
+                            assert_eq!(p.pop(), None);
+                        }
+                    }
+
+                    assert_eq!(res_data.len()-2, data.len());
+
+                    let d = &res_data[..res_data.len()-2];
+                    let c = &res_data[res_data.len()-2..];
+                    let crc: [u8; 2] = X25.checksum(d).to_be_bytes();
+                    assert_eq!(d, data);
+                    assert_eq!(c, crc);
+
+                    assert_eq!(p.pop(), None);
+                }
+                SizeType::Large => {}
+            }
         }
 
         assert_eq!(CanDudePacket::new(12, &[]), None);
-        check(&[1,2,3,4,5,6,7,8,9,10]);
-        check(&[1,2,3,4,5]);
-        check(&[1,2]);
-        check(&[1]);
+
+        for size in 1..62u16 {
+            let mut data: std::vec::Vec<u8> = std::vec::Vec::with_capacity(size as usize);
+            for i in 0..size {
+                data.push(i as u8);
+            }
+            check(&data);
+        }
     }
 
     #[test]
