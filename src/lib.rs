@@ -142,7 +142,6 @@ impl<'a> CanDudePacket<'a>
             SizeType::Large => {
                 (self.sent_counter < self.data.len() + 4).then_some(())?;
 
-                //let mut data = arrayvec::ArrayVec::try_from(&self.data[self.sent_counter..]).ok()?;
                 let mut data = match self.sent_counter {
                     0 => {
                         let mut data = arrayvec::ArrayVec::new();
@@ -158,16 +157,14 @@ impl<'a> CanDudePacket<'a>
                         data
                     },
                     _ => {
-                        let data = arrayvec::ArrayVec::try_from(&self.data[(self.sent_counter-2)..]).ok()?;
+                        let end_index = (self.sent_counter - 2 + MAX_FRAME_SIZE).min(self.data.len());
+                        let mut data = arrayvec::ArrayVec::try_from(&self.data[self.sent_counter-2..end_index]).ok()?;
+
                         self.sent_counter += data.len();
                         data
                     }
                 };
-                ///DOOOOOO
-                //data.extend(&self.data[self.sent_counter..]);
-                data.try_extend_from_slice(self.data);
 
-                self.sent_counter += data.len();
                 let mut end_of_packet = false;
 
                 if data.capacity() - data.len() > 2 {
@@ -177,14 +174,12 @@ impl<'a> CanDudePacket<'a>
                     end_of_packet = true;
                 }
 
-                CanDudeframe {
+                Some(CanDudeframe {
                     address: self.address,
                     data,
-                    counter: Counter::Bytes(self.sent_counter as u8),
+                    counter: Counter::Frames(((self.sent_counter+9) / MAX_FRAME_SIZE) as u8),
                     end_of_packet,
-                };
-
-                None
+                })
             }
         }
     }
@@ -250,39 +245,47 @@ mod tests {
 
                     assert_eq!(p.pop(), None);
                 }
-                SizeType::Large => {}
+                SizeType::Large => {
+                    let mut res_data: std::vec::Vec<u8> = std::vec::Vec::new();
+
+                    let mut end_of_packet = false;
+                    while let Some(frame) = p.pop() {
+                        assert_eq!(end_of_packet, false);
+
+                        assert_eq!(frame.address, 12);
+                        res_data.extend(frame.data);
+                        assert_eq!(frame.counter, Counter::Frames(((res_data.len()+9)/MAX_FRAME_SIZE) as u8));
+
+                        if frame.end_of_packet {
+                            end_of_packet = true;
+                            assert_eq!(p.pop(), None);
+                        }
+                    }
+
+                    assert_eq!(res_data.len()-4, data.len());
+
+                    let len = u16::from_be_bytes(res_data[..2].try_into().unwrap());
+                    let d = &res_data[2..res_data.len()-2];
+                    let c = &res_data[res_data.len()-2..];
+                    let crc: [u8; 2] = X25.checksum(d).to_be_bytes();
+                    assert_eq!(len, data.len() as u16);
+                    assert_eq!(d, data);
+                    assert_eq!(c, crc);
+
+                    assert_eq!(p.pop(), None);
+                }
             }
         }
 
         assert_eq!(CanDudePacket::new(12, &[]), None);
 
-        for size in 1..62u16 {
+        for size in 1..=636_u16 {
             let mut data: std::vec::Vec<u8> = std::vec::Vec::with_capacity(size as usize);
             for i in 0..size {
                 data.push(i as u8);
             }
             check(&data);
         }
-    }
-
-    #[test]
-    fn can_dude_packet_medium() {
-        /*fn check(data: &[u8]) {
-            let mut p = CanDudePacket::new(12, &data).unwrap();
-            assert_eq!(p.pop(), Some(CanDudeframe {
-                address: 12,
-                data: arrayvec::ArrayVec::try_from(data).unwrap(),
-                counter: Counter::Bytes(data.len() as u8),
-                end_of_packet: true,
-            }));
-            assert_eq!(p.pop(), None);
-        }
-
-        assert_eq!(CanDudePacket::new(12, &[]), None);
-        check(&[1,2,3,4,5,6,7,8,9,10]);
-        check(&[1,2,3,4,5]);
-        check(&[1,2]);
-        check(&[1]);*/
     }
 
     #[test]
