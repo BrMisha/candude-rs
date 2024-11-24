@@ -1,7 +1,5 @@
 #![cfg_attr(not(test), no_std)]
 
-use core::ops::Not;
-
 pub const MAX_FRAME_SIZE: usize = 10;
 const X25: crc::Crc<u16> = crc::Crc::<u16>::new(&crc::CRC_16_IBM_SDLC);
 
@@ -59,7 +57,7 @@ impl CanDudeframe {
             id |= (*v as u32) << 13;
         }
         if let Some(v) = iter.next() {
-            id |= (*v as u32) << 13+8;
+            id |= (*v as u32) << (13+8);
         }
 
         let data = iter.as_slice();
@@ -86,7 +84,7 @@ impl<'a> CanDudePacket<'a>
 {
     pub fn new<'b: 'a, T>(address: u8, data: &'b T) -> Option<Self> where T: AsRef<[u8]> {
         let data = data.as_ref();
-        (data.len() > 0).then_some(())?;
+        (!data.is_empty()).then_some(())?;
 
         Some(Self { address, data, sent_counter: 0 })
     }
@@ -158,7 +156,7 @@ impl<'a> CanDudePacket<'a>
                     },
                     _ => {
                         let end_index = (self.sent_counter - 2 + MAX_FRAME_SIZE).min(self.data.len());
-                        let mut data = arrayvec::ArrayVec::try_from(&self.data[self.sent_counter-2..end_index]).ok()?;
+                        let data = arrayvec::ArrayVec::try_from(&self.data[self.sent_counter-2..end_index]).ok()?;
 
                         self.sent_counter += data.len();
                         data
