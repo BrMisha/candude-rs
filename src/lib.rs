@@ -10,14 +10,14 @@ pub enum Counter {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CanDudeframe {
+pub struct CanDudeFrame {
     pub address: u8,
     pub data: arrayvec::ArrayVec<u8, MAX_FRAME_SIZE>,
     pub counter: Counter,
     pub end_of_packet: bool,
 }
 
-impl CanDudeframe {
+impl CanDudeFrame {
     pub fn from_canbus(id: u32, data: &[u8]) -> Option<Self> {
         let address = id as u8 & 0b11_111;
         let end_of_packet = ((id >> 5) as u8 & 0b1) == 1;
@@ -104,12 +104,12 @@ impl<'a> CanDudePacket<'a> {
         }
     }
 
-    pub fn pop(&mut self) -> Option<CanDudeframe> {
+    pub fn pop(&mut self) -> Option<CanDudeFrame> {
         match self.size_type() {
             SizeType::SingleFrame => {
                 (self.sent_counter < self.data.len()).then_some(())?;
 
-                let result = CanDudeframe {
+                let result = CanDudeFrame {
                     address: self.address,
                     data: arrayvec::ArrayVec::try_from(self.data).ok()?,
                     counter: Counter::Bytes(self.data.len() as u8),
@@ -137,7 +137,7 @@ impl<'a> CanDudePacket<'a> {
                     end_of_packet = true;
                 }
 
-                Some(CanDudeframe {
+                Some(CanDudeFrame {
                     address: self.address,
                     data,
                     counter: Counter::Bytes(self.sent_counter as u8),
@@ -167,7 +167,7 @@ impl<'a> CanDudePacket<'a> {
                         let data = arrayvec::ArrayVec::try_from(
                             &self.data[self.sent_counter - 2..end_index],
                         )
-                        .ok()?;
+                            .ok()?;
 
                         self.sent_counter += data.len();
                         data
@@ -183,7 +183,7 @@ impl<'a> CanDudePacket<'a> {
                     end_of_packet = true;
                 }
 
-                Some(CanDudeframe {
+                Some(CanDudeFrame {
                     address: self.address,
                     data,
                     counter: Counter::Frames(((self.sent_counter + 9) / MAX_FRAME_SIZE) as u8),
@@ -194,6 +194,113 @@ impl<'a> CanDudePacket<'a> {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CanDudePacketReceiverState {
+    Empty,
+    Receiving(Counter),
+    Received,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CanDudePacketReceiver<const CAPACITY: usize> {
+    pub address: u8,
+    pub data: arrayvec::ArrayVec<u8, CAPACITY>,
+    //pub received_counter: usize, // with len and crc
+    pub state: CanDudePacketReceiverState,
+    pub received_len: u16,  // for large
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CanDudePacketReceiverError {
+    Sequential,
+
+}
+
+impl<const CAPACITY: usize> CanDudePacketReceiver<CAPACITY> {
+    pub fn new(address: u8) -> CanDudePacketReceiver<CAPACITY> {
+        Self {
+            address,
+            data: arrayvec::ArrayVec::new(),
+            state: CanDudePacketReceiverState::Empty,
+            received_len: 0,
+        }
+    }
+
+    pub fn push(&mut self, frame: CanDudeFrame) {
+        if self.address != frame.address { return; }
+
+        let process = || -> Option<()> {
+            // check sequential_is_valid
+            match &self.state {
+                CanDudePacketReceiverState::Received => return Some(()),
+                CanDudePacketReceiverState::Receiving(counter) => {
+                    match counter {
+                        Counter::Bytes(current_len) => {
+                            match &frame.counter {
+                                Counter::Bytes(len) =>
+                                    (*current_len+1..=*current_len + MAX_FRAME_SIZE as u8).contains(&len).then_some(())?
+                                ,
+                                Counter::Frames(_) => return None,
+                            }
+                        }
+                        Counter::Frames(current_count) => {
+                            match &frame.counter {
+                                Counter::Bytes(_) => return None,
+                                Counter::Frames(count) => {
+                                    (*count == current_count+1).then_some(())?;
+                                },
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            };
+
+            match &frame.counter {
+                Counter::Bytes(bytes) => {
+                    self.state = CanDudePacketReceiverState::Receiving(Counter::Bytes(*bytes));
+                    (self.data.len() + frame.data.len() == *bytes as usize).then_some(())?;
+
+                    match frame.end_of_packet {
+                        false => self.data.extend(frame.data),
+                        true => {
+                            match self.data.len() {
+                                // If this is first packet and it is last (single frame)
+                                // Then just store all data
+                                0 => self.data.extend(frame.data),
+                                // Else extend data then check CRC
+                                _ => {
+                                    let (data, crc) = frame.data.split_at(frame.data.len()-2);
+                                    self.data.try_extend_from_slice(data).ok()?;
+                                    let c = X25.checksum(self.data.as_slice()).to_be_bytes();
+                                    (c == crc).then_some(())?;
+                                }
+                            }
+
+                            self.state = CanDudePacketReceiverState::Received;
+                        },
+                    }
+                }
+                Counter::Frames(frames) => {
+                    self.state = CanDudePacketReceiverState::Receiving(Counter::Frames(*frames));
+                }
+            }
+
+            Some(())
+        };
+
+
+
+        match process() {
+            Some(_) => {}
+            None => {
+                self.data = arrayvec::ArrayVec::new();
+                self.state = CanDudePacketReceiverState::Empty;
+            }
+        };
+    }
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -203,11 +310,24 @@ mod tests {
         let mut d = [0u8; 200]; // Initialize all 200 elements with 0
         d[0] = 1; // Set the first element
         d[1] = 23; // Set the second element
-                   //let ss = CanDudePacket::new(&d);
+        //let ss = CanDudePacket::new(&d);
     }
 
     #[test]
-    fn can_dude_packet_small() {
+    fn can_dude_packet_read() {
+        let data: &[u8] = &[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18];
+        let mut p = CanDudePacket::new(12, &data).unwrap();
+
+        let mut rec = CanDudePacketReceiver::<100>::new(12);
+        rec.push(p.pop().unwrap());
+        assert!(matches!(rec.state, CanDudePacketReceiverState::Receiving(_)));
+        rec.push(p.pop().unwrap());
+        assert_eq!(rec.state, CanDudePacketReceiverState::Received);
+        assert_eq!(rec.data.as_slice(), data);
+    }
+
+    #[test]
+    fn can_dude_packet_write() {
         fn check(data: &[u8]) {
             let mut p = CanDudePacket::new(12, &data).unwrap();
             match data.len() {
@@ -221,7 +341,7 @@ mod tests {
                 SizeType::SingleFrame => {
                     assert_eq!(
                         p.pop(),
-                        Some(CanDudeframe {
+                        Some(CanDudeFrame {
                             address: 12,
                             data: arrayvec::ArrayVec::try_from(data).unwrap(),
                             counter: Counter::Bytes(data.len() as u8),
@@ -313,7 +433,7 @@ mod tests {
             200 << 13+8; // byte 2
         let data: [u8; 3] = [1, 2, 3];
 
-        let result = CanDudeframe::from_canbus(id, data.as_ref()).unwrap();
+        let result = CanDudeFrame::from_canbus(id, data.as_ref()).unwrap();
         assert_eq!(result.address, 25);
         assert_eq!(result.end_of_packet, true);
         assert_eq!(result.counter, Counter::Bytes(50));
@@ -342,7 +462,7 @@ mod tests {
             20 << 13+8; // byte 2
         let data: [u8; 8] = [1, 2, 3, 4, 5, 6, 7, 8];
 
-        let result = CanDudeframe::from_canbus(id, data.as_ref()).unwrap();
+        let result = CanDudeFrame::from_canbus(id, data.as_ref()).unwrap();
         assert_eq!(result.address, 5);
         assert_eq!(result.end_of_packet, false);
         assert_eq!(result.counter, Counter::Frames(63));
