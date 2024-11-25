@@ -130,7 +130,7 @@ impl<'a> CanDudePacket<'a> {
                 self.sent_counter += data.len();
                 let mut end_of_packet = false;
 
-                if data.capacity() - data.len() > 2 {
+                if data.capacity() - data.len() >= 2 {
                     let crc: [u8; 2] = X25.checksum(self.data).to_be_bytes();
                     data.extend(crc);
                     self.sent_counter += crc.len();
@@ -176,7 +176,7 @@ impl<'a> CanDudePacket<'a> {
 
                 let mut end_of_packet = false;
 
-                if data.capacity() - data.len() > 2 {
+                if data.capacity() - data.len() >= 2 {
                     let crc: [u8; 2] = X25.checksum(self.data).to_be_bytes();
                     data.extend(crc);
                     self.sent_counter += crc.len();
