@@ -315,7 +315,7 @@ mod tests {
 
     #[test]
     fn can_dude_packet_read() {
-        let data: &[u8] = &[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18];
+        /*let data: &[u8] = &[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18];
         let mut p = CanDudePacket::new(12, &data).unwrap();
 
         let mut rec = CanDudePacketReceiver::<100>::new(12);
@@ -324,6 +324,24 @@ mod tests {
         rec.push(p.pop().unwrap());
         assert_eq!(rec.state, CanDudePacketReceiverState::Received);
         assert_eq!(rec.data.as_slice(), data);
+*/
+
+
+        for size in 1..=62_u16 {
+            let mut data: std::vec::Vec<u8> = std::vec::Vec::with_capacity(size as usize);
+            for i in 0..size {
+                data.push(i as u8);
+            }
+            let mut p = CanDudePacket::new(12, &data).unwrap();
+
+            let mut rec = CanDudePacketReceiver::<1000>::new(12);
+
+            while rec.state != CanDudePacketReceiverState::Received {
+                rec.push(p.pop().unwrap());
+            }
+
+            assert_eq!(rec.data.as_slice(), data.as_slice());
+        }
     }
 
     #[test]
