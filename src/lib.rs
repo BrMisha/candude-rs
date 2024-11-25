@@ -74,13 +74,13 @@ pub enum SizeType {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CanDudePacket<'a> {
+pub struct CanDudePacketSender<'a> {
     pub address: u8,
     pub data: &'a [u8],
     pub sent_counter: usize, // with len and crc
 }
 
-impl<'a> CanDudePacket<'a> {
+impl<'a> CanDudePacketSender<'a> {
     pub fn new<'b: 'a, T>(address: u8, data: &'b T) -> Option<Self>
     where
         T: AsRef<[u8]>,
@@ -332,7 +332,7 @@ mod tests {
             for i in 0..size {
                 data.push(i as u8);
             }
-            let mut p = CanDudePacket::new(12, &data).unwrap();
+            let mut p = CanDudePacketSender::new(12, &data).unwrap();
 
             let mut rec = CanDudePacketReceiver::<1000>::new(12);
 
@@ -345,9 +345,9 @@ mod tests {
     }
 
     #[test]
-    fn can_dude_packet_write() {
+    fn can_dude_packet_sender() {
         fn check(data: &[u8]) {
-            let mut p = CanDudePacket::new(12, &data).unwrap();
+            let mut p = CanDudePacketSender::new(12, &data).unwrap();
             match data.len() {
                 0..=10 => assert_eq!(p.size_type(), SizeType::SingleFrame),
                 11..=62 => assert_eq!(p.size_type(), SizeType::Medium),
@@ -430,7 +430,7 @@ mod tests {
             }
         }
 
-        assert_eq!(CanDudePacket::new(12, &[]), None);
+        assert_eq!(CanDudePacketSender::new(12, &[]), None);
 
         for size in 1..=636_u16 {
             let mut data: std::vec::Vec<u8> = std::vec::Vec::with_capacity(size as usize);
