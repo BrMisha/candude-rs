@@ -233,8 +233,11 @@ impl<const CAPACITY: usize> CanDudePacketReceiver<CAPACITY> {
             CanDudePacketReceiverState::Received => Some(self.data.as_slice()),
             _ => None,
         }
-        
-    }    
+    }
+    pub fn reset(&mut self) {
+        self.data = arrayvec::ArrayVec::new();
+        self.state = CanDudePacketReceiverState::Empty;
+    }
 
     pub fn push(&mut self, frame: CanDudeFrame) {
         if self.address != frame.address {
@@ -320,11 +323,8 @@ impl<const CAPACITY: usize> CanDudePacketReceiver<CAPACITY> {
         };
 
         match process() {
-            Some(_) => {}
-            None => {
-                self.data = arrayvec::ArrayVec::new();
-                self.state = CanDudePacketReceiverState::Empty;
-            }
+            Some(_) => {},
+            None => self.reset(),
         };
     }
 }
@@ -343,11 +343,7 @@ mod tests {
 
     #[test]
     fn can_dude_packet_read() {
-        for size in 1..=636_u16 {
-            let mut data: std::vec::Vec<u8> = std::vec::Vec::with_capacity(size as usize);
-            for i in 0..size {
-                data.push(i as u8);
-            }
+        fn check(data: std::vec::Vec<u8>) {
             let mut p = CanDudePacketSender::new(12, &data).unwrap();
 
             let mut rec = CanDudePacketReceiver::<636>::new(12);
@@ -357,6 +353,14 @@ mod tests {
             let rec_data = rec.data().unwrap();
             assert_eq!(rec_data.len(), data.len());
             assert_eq!(rec_data, data.as_slice());
+        }
+        
+        for size in 1..=636_u16 {
+            let mut data: std::vec::Vec<u8> = std::vec::Vec::with_capacity(size as usize);
+            for i in 0..size {
+                data.push(i as u8);
+            }
+            check(data);
         }
     }
 
