@@ -94,9 +94,11 @@ impl<'a> CanDudePacketSender<'a> {
             sent_counter: 0,
         })
     }
-    
-    pub fn address(&self) -> u8 {self.address}
-    
+
+    pub fn address(&self) -> u8 {
+        self.address
+    }
+
     pub fn completed(&self) -> bool {
         match self.size_type() {
             SizeType::SingleFrame => self.sent_counter >= self.data.len(),
@@ -116,7 +118,7 @@ impl<'a> CanDudePacketSender<'a> {
 
     pub fn pop(&mut self) -> Option<CanDudeFrame> {
         (!self.completed()).then_some(())?;
-        
+
         match self.size_type() {
             SizeType::SingleFrame => {
                 let result = CanDudeFrame {
@@ -225,11 +227,17 @@ impl<const CAPACITY: usize> CanDudePacketReceiver<CAPACITY> {
         }
     }
 
-    pub fn address(&self) -> u8 {self.address}
-    pub fn state(&self) -> &CanDudePacketReceiverState {&self.state}
-    pub fn received_count(&self) -> usize {self.data.len()}
+    pub fn address(&self) -> u8 {
+        self.address
+    }
+    pub fn state(&self) -> &CanDudePacketReceiverState {
+        &self.state
+    }
+    pub fn received_count(&self) -> usize {
+        self.data.len()
+    }
     pub fn data(&self) -> Option<&[u8]> {
-        match self.state { 
+        match self.state {
             CanDudePacketReceiverState::Received => Some(self.data.as_slice()),
             _ => None,
         }
@@ -323,7 +331,7 @@ impl<const CAPACITY: usize> CanDudePacketReceiver<CAPACITY> {
         };
 
         match process() {
-            Some(_) => {},
+            Some(_) => {}
             None => self.reset(),
         };
     }
@@ -354,7 +362,7 @@ mod tests {
             assert_eq!(rec_data.len(), data.len());
             assert_eq!(rec_data, data.as_slice());
         }
-        
+
         for size in 1..=636_u16 {
             let mut data: std::vec::Vec<u8> = std::vec::Vec::with_capacity(size as usize);
             for i in 0..size {
