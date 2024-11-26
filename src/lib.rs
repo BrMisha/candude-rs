@@ -75,9 +75,9 @@ pub enum SizeType {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CanDudePacketSender<'a> {
-    pub address: u8,
-    pub data: &'a [u8],
-    pub sent_counter: usize, // with len and crc
+    address: u8,
+    data: &'a [u8],
+    sent_counter: usize, // with len and crc
 }
 
 impl<'a> CanDudePacketSender<'a> {
@@ -94,6 +94,16 @@ impl<'a> CanDudePacketSender<'a> {
             sent_counter: 0,
         })
     }
+    
+    pub fn address(&self) -> u8 {self.address}
+    
+    pub fn completed(&self) -> bool {
+        match self.size_type() {
+            SizeType::SingleFrame => !(self.sent_counter < self.data.len()),
+            SizeType::Medium => !(self.sent_counter < self.data.len() + 2),
+            SizeType::Large => !((self.sent_counter < self.data.len() + 4)),
+        }
+    }
 
     pub fn size_type(&self) -> SizeType {
         match self.data.len() {
@@ -105,10 +115,10 @@ impl<'a> CanDudePacketSender<'a> {
     }
 
     pub fn pop(&mut self) -> Option<CanDudeFrame> {
+        (!self.completed()).then_some(())?;
+        
         match self.size_type() {
             SizeType::SingleFrame => {
-                (self.sent_counter < self.data.len()).then_some(())?;
-
                 let result = CanDudeFrame {
                     address: self.address,
                     data: arrayvec::ArrayVec::try_from(self.data).ok()?,
@@ -121,8 +131,6 @@ impl<'a> CanDudePacketSender<'a> {
                 Some(result)
             }
             SizeType::Medium => {
-                (self.sent_counter < self.data.len() + 2).then_some(())?;
-
                 let end_index = (self.sent_counter + MAX_FRAME_SIZE).min(self.data.len());
                 let mut data =
                     arrayvec::ArrayVec::try_from(&self.data[self.sent_counter..end_index]).ok()?;
@@ -145,8 +153,6 @@ impl<'a> CanDudePacketSender<'a> {
                 })
             }
             SizeType::Large => {
-                (self.sent_counter < self.data.len() + 4).then_some(())?;
-
                 let mut data = match self.sent_counter {
                     0 => {
                         let mut data = arrayvec::ArrayVec::new();
@@ -203,11 +209,10 @@ pub enum CanDudePacketReceiverState {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CanDudePacketReceiver<const CAPACITY: usize> {
-    pub address: u8,
-    pub data: arrayvec::ArrayVec<u8, CAPACITY>,
-    //pub received_counter: usize, // with len and crc
-    pub state: CanDudePacketReceiverState,
-    pub received_len: u16, // for large
+    address: u8,
+    data: arrayvec::ArrayVec<u8, CAPACITY>,
+    state: CanDudePacketReceiverState,
+    received_len: u16, // for large
 }
 
 impl<const CAPACITY: usize> CanDudePacketReceiver<CAPACITY> {
@@ -219,6 +224,9 @@ impl<const CAPACITY: usize> CanDudePacketReceiver<CAPACITY> {
             received_len: 0,
         }
     }
+
+    pub fn address(&self) -> u8 {self.address}
+    pub fn state(&self) -> &CanDudePacketReceiverState {&self.state}
 
     pub fn push(&mut self, frame: CanDudeFrame) {
         if self.address != frame.address {
