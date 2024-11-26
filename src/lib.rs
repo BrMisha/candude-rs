@@ -227,6 +227,14 @@ impl<const CAPACITY: usize> CanDudePacketReceiver<CAPACITY> {
 
     pub fn address(&self) -> u8 {self.address}
     pub fn state(&self) -> &CanDudePacketReceiverState {&self.state}
+    pub fn received_count(&self) -> usize {self.data.len()}
+    pub fn data(&self) -> Option<&[u8]> {
+        match self.state { 
+            CanDudePacketReceiverState::Received => Some(self.data.as_slice()),
+            _ => None,
+        }
+        
+    }    
 
     pub fn push(&mut self, frame: CanDudeFrame) {
         if self.address != frame.address {
@@ -342,11 +350,13 @@ mod tests {
             }
             let mut p = CanDudePacketSender::new(12, &data).unwrap();
 
-            let mut rec = CanDudePacketReceiver::<1000>::new(12);
+            let mut rec = CanDudePacketReceiver::<636>::new(12);
             while rec.state != CanDudePacketReceiverState::Received {
                 rec.push(p.pop().unwrap());
             }
-            assert_eq!(rec.data.len(), data.len());
+            let rec_data = rec.data().unwrap();
+            assert_eq!(rec_data.len(), data.len());
+            assert_eq!(rec_data, data.as_slice());
         }
     }
 
