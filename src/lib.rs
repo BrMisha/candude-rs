@@ -99,9 +99,9 @@ impl<'a> CanDudePacketSender<'a> {
     
     pub fn completed(&self) -> bool {
         match self.size_type() {
-            SizeType::SingleFrame => !(self.sent_counter < self.data.len()),
-            SizeType::Medium => !(self.sent_counter < self.data.len() + 2),
-            SizeType::Large => !((self.sent_counter < self.data.len() + 4)),
+            SizeType::SingleFrame => self.sent_counter >= self.data.len(),
+            SizeType::Medium => self.sent_counter >= self.data.len() + 2,
+            SizeType::Large => self.sent_counter >= self.data.len() + 4,
         }
     }
 
@@ -393,7 +393,7 @@ mod tests {
 
                     let mut end_of_packet = false;
                     while let Some(frame) = p.pop() {
-                        assert_eq!(end_of_packet, false);
+                        assert!(!end_of_packet);
 
                         assert_eq!(frame.address, 12);
                         res_data.extend(frame.data);
@@ -420,7 +420,7 @@ mod tests {
 
                     let mut end_of_packet = false;
                     while let Some(frame) = p.pop() {
-                        assert_eq!(end_of_packet, false);
+                        assert!(!end_of_packet);
 
                         assert_eq!(frame.address, 12);
                         res_data.extend(frame.data);
@@ -464,16 +464,15 @@ mod tests {
     #[test]
     fn from_to_canbus() {
         let id: u32 = 25 |  // address
-            1 << 5 |        // end of packet
-            0 << 6 |        // counter in bytes
+            1 << 5 |        // counter in bytes
             50 << 7 |       // count
             100 << 13 |     // byte 1
-            200 << 13+8; // byte 2
+            200 << (13+8); // byte 2
         let data: [u8; 3] = [1, 2, 3];
 
         let result = CanDudeFrame::from_canbus(id, data.as_ref()).unwrap();
         assert_eq!(result.address, 25);
-        assert_eq!(result.end_of_packet, true);
+        assert!(result.end_of_packet);
         assert_eq!(result.counter, Counter::Bytes(50));
         assert_eq!(result.data[0], 100);
         assert_eq!(result.data[1], 200);
@@ -487,22 +486,21 @@ mod tests {
         assert_eq!(result.0 >> 6 & 0b1, 0);
         assert_eq!(result.0 >> 7 & 0b111111, 50);
         assert_eq!(result.0 >> 13 & 0xFF, 100);
-        assert_eq!(result.0 >> 13 + 8 & 0xFF, 200);
+        assert_eq!(result.0 >> (13 + 8) & 0xFF, 200);
         assert_eq!(result.1[0], 1);
         assert_eq!(result.1[1], 2);
         assert_eq!(result.1[2], 3);
 
-        let id: u32 = 5 |   // address
-            0 << 5 |        // end of packet
+        let id: u32 = 5 |        // end of packet
             1 << 6 |        // counter in frames
             63 << 7 |       // count
             10 << 13 |     // byte 1
-            20 << 13+8; // byte 2
+            20 << (13+8); // byte 2
         let data: [u8; 8] = [1, 2, 3, 4, 5, 6, 7, 8];
 
         let result = CanDudeFrame::from_canbus(id, data.as_ref()).unwrap();
         assert_eq!(result.address, 5);
-        assert_eq!(result.end_of_packet, false);
+        assert!(!result.end_of_packet);
         assert_eq!(result.counter, Counter::Frames(63));
         assert_eq!(result.data[0], 10);
         assert_eq!(result.data[1], 20);
@@ -521,7 +519,7 @@ mod tests {
         assert_eq!(result.0 >> 6 & 0b1, 1);
         assert_eq!(result.0 >> 7 & 0b111111, 63);
         assert_eq!(result.0 >> 13 & 0xFF, 10);
-        assert_eq!(result.0 >> 13 + 8 & 0xFF, 20);
+        assert_eq!(result.0 >> (13 + 8) & 0xFF, 20);
         assert_eq!(result.1[0], 1);
         assert_eq!(result.1[1], 2);
         assert_eq!(result.1[2], 3);
