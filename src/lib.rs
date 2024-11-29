@@ -1,7 +1,5 @@
 #![cfg_attr(not(test), no_std)]
 
-use core::ffi::c_uint;
-use crc::Crc;
 use bit::BitIndex;
 
 pub const MAX_FRAME_SIZE: usize = 10;
@@ -136,7 +134,7 @@ impl<'a> CanDudePacketSender<'a> {
                     self.sent_counter += 1;
                 }
 
-                let mut end_of_packet = self.sent_counter == self.data.len() + self.crc.len();
+                let end_of_packet = self.sent_counter == self.data.len() + self.crc.len();
 
                 Some(CanDudeFrame {
                     address: self.address,
@@ -205,102 +203,118 @@ impl<const CAPACITY: usize> CanDudePacketReceiver<CAPACITY> {
         match &self.state {
             CanDudePacketReceiverState::Received(_) => return,
             _ => {
-                // if single frames
-                if frame.end_of_packet && frame.counter as usize == frame.data.len() {
-                    self.data[0..frame.data.len()].clone_from_slice(frame.data.as_slice());
-                    self.state = CanDudePacketReceiverState::Received(frame.data.len());
+                // If single frames
+                if frame.end_of_packet && frame.counter as usize <= MAX_FRAME_SIZE {
+                    if frame.counter as usize == frame.data.len() {
+                        self.data[0..frame.data.len()].clone_from_slice(frame.data.as_slice());
+                        self.state = CanDudePacketReceiverState::Received(frame.data.len());
+                    }
                 }
                 else {
-                    /// Get range.
-                    /// First is number of frame (all frames except last with MAX_FRAME_SIZE)
-                    let frame_number = ((frame.counter as usize / MAX_FRAME_SIZE) * MAX_FRAME_SIZE) - MAX_FRAME_SIZE;
-                    self.data[frame_number .. frame.counter as usize].clone_from_slice(frame.data.as_slice());
+                    // Get range.
+                    // First is number of frame (all frames except last with MAX_FRAME_SIZE)
+                    let frame_number = (frame.counter - 1) as usize / MAX_FRAME_SIZE;
+                    if let Some(data) = self.data.get_mut(frame_number * MAX_FRAME_SIZE .. frame.counter as usize) {
+                        //self.data[frame_number * MAX_FRAME_SIZE .. frame.counter as usize]
+                        data.clone_from_slice(frame.data.as_slice());
 
-                    // mark frame is received
-                    self.received_frame.set_bit(frame_number, true);
-                    /// If there isn't frame with less pos
-                    if self.first_frame_with_end.1 == 0 || self.first_frame_with_end.0 >= frame_number {
-                        self.first_frame_with_end.0 = frame_number;
-                        self.first_frame_with_end.1 = frame.counter as usize;
-                    }
-
-                    for pos in 0..(CAPACITY/MAX_FRAME_SIZE + (((CAPACITY % MAX_FRAME_SIZE) != 0) as usize)) {
-                        match self.received_frame.bit(pos) {
-                            false => break,
-                            true => if self.first_frame_with_end.0 == pos {
-                                // All frames before marked as received
-                                let data = &self.data[0..self.first_frame_with_end.1];
-
-                                break;
-                            }
+                        // mark frame is received
+                        self.received_frame.set_bit(frame_number, true);
+                        // If there isn't frame with less pos
+                        if frame.end_of_packet && (self.first_frame_with_end.1 == 0 || self.first_frame_with_end.0 >= frame_number) {
+                            self.first_frame_with_end.0 = frame_number;
+                            self.first_frame_with_end.1 = frame.counter as usize;
                         }
 
-                    }
+                        // In case when multi-frame, we need to check from second item
+                        for pos in 1..(CAPACITY/MAX_FRAME_SIZE + (((CAPACITY % MAX_FRAME_SIZE) != 0) as usize)) {
+                            match self.received_frame.bit(pos) {
+                                false => break,
+                                true => if self.first_frame_with_end.0 == pos {
+                                    // All frames before marked as received
+                                    let data_r = 0..self.first_frame_with_end.1-2;
+                                    let crc_r = self.first_frame_with_end.1-2..self.first_frame_with_end.1;
 
+                                    let c = CRC.checksum(&self.data[data_r.clone()]);
+
+                                    if c.to_be_bytes() == &self.data[crc_r.clone()] {
+                                        self.state = CanDudePacketReceiverState::Received(data_r.len());
+                                        self.first_frame_with_end = (0, 0);
+                                        self.received_frame = 0;
+                                        // clear crc
+                                        self.data[crc_r].fill(0);
+                                    }
+
+                                    break;
+                                }
+                            }
+
+                        }
+                    }
                 }
 
             }
         }
-/*
-        let process = || -> Option<()> {
-            // check sequential_is_valid
-            match &self.state {
-                CanDudePacketReceiverState::Received => return Some(()),
-                CanDudePacketReceiverState::Receiving(counter) => {
-                    match counter {
-                        Counter::Bytes(current_len) => match &frame.counter {
-                            Counter::Bytes(len) => (*current_len + 1
-                                ..=*current_len + MAX_FRAME_SIZE as u8)
-                                .contains(len)
-                                .then_some(())?,
-                            Counter::Frames(_) => return None,
-                        },
-                        // Ensure this is next frame
-                        Counter::Frames(current_count) => match &frame.counter {
-                            Counter::Bytes(_) => return None,
-                            Counter::Frames(count) => {
-                                (*count == current_count + 1).then_some(())?;
+        /*
+                let process = || -> Option<()> {
+                    // check sequential_is_valid
+                    match &self.state {
+                        CanDudePacketReceiverState::Received => return Some(()),
+                        CanDudePacketReceiverState::Receiving(counter) => {
+                            match counter {
+                                Counter::Bytes(current_len) => match &frame.counter {
+                                    Counter::Bytes(len) => (*current_len + 1
+                                        ..=*current_len + MAX_FRAME_SIZE as u8)
+                                        .contains(len)
+                                        .then_some(())?,
+                                    Counter::Frames(_) => return None,
+                                },
+                                // Ensure this is next frame
+                                Counter::Frames(current_count) => match &frame.counter {
+                                    Counter::Bytes(_) => return None,
+                                    Counter::Frames(count) => {
+                                        (*count == current_count + 1).then_some(())?;
+                                    }
+                                },
                             }
-                        },
-                    }
-                }
-                _ => {}
-            };
+                        }
+                        _ => {}
+                    };
 
-            match &frame.counter {
-                Counter::Bytes(bytes) => {
-                    self.state = CanDudePacketReceiverState::Receiving(Counter::Bytes(*bytes));
-                    (self.data.len() + frame.data.len() == *bytes as usize).then_some(())?;
+                    match &frame.counter {
+                        Counter::Bytes(bytes) => {
+                            self.state = CanDudePacketReceiverState::Receiving(Counter::Bytes(*bytes));
+                            (self.data.len() + frame.data.len() == *bytes as usize).then_some(())?;
 
-                    match frame.end_of_packet {
-                        false => self.data.extend(frame.data),
-                        true => {
-                            match self.data.len() {
-                                // If this is first packet and it is last (single frame)
-                                // Then just store all data
-                                0 => self.data.extend(frame.data),
-                                // Else extend data then check CRC
-                                _ => {
-                                    let (data, crc) = frame.data.split_at(frame.data.len() - 2);
-                                    self.data.try_extend_from_slice(data).ok()?;
-                                    let c = CRC.checksum(self.data.as_slice()).to_be_bytes();
-                                    (c == crc).then_some(())?;
+                            match frame.end_of_packet {
+                                false => self.data.extend(frame.data),
+                                true => {
+                                    match self.data.len() {
+                                        // If this is first packet and it is last (single frame)
+                                        // Then just store all data
+                                        0 => self.data.extend(frame.data),
+                                        // Else extend data then check CRC
+                                        _ => {
+                                            let (data, crc) = frame.data.split_at(frame.data.len() - 2);
+                                            self.data.try_extend_from_slice(data).ok()?;
+                                            let c = CRC.checksum(self.data.as_slice()).to_be_bytes();
+                                            (c == crc).then_some(())?;
+                                        }
+                                    }
+
+                                    self.state = CanDudePacketReceiverState::Received;
                                 }
                             }
-
-                            self.state = CanDudePacketReceiverState::Received;
                         }
                     }
-                }
-            }
 
-            Some(())
-        };
+                    Some(())
+                };
 
-        match process() {
-            Some(_) => {}
-            None => self.reset(),
-        };*/
+                match process() {
+                    Some(_) => {}
+                    None => self.reset(),
+                };*/
     }
 }
 
@@ -313,7 +327,7 @@ mod tests {
         let mut d = [0u8; 200]; // Initialize all 200 elements with 0
         d[0] = 1; // Set the first element
         d[1] = 23; // Set the second element
-                   //let ss = CanDudePacket::new(&d);
+        //let ss = CanDudePacket::new(&d);
     }
 
     #[test]
@@ -321,7 +335,7 @@ mod tests {
         fn check(data: std::vec::Vec<u8>) {
             let mut p = CanDudePacketSender::new(12, &data).unwrap();
 
-            let mut rec = CanDudePacketReceiver::<126>::new(12);
+            let mut rec = CanDudePacketReceiver::<128>::new(12);
             while !matches!(rec.state, CanDudePacketReceiverState::Received(_)) {
                 rec.push(p.pop().unwrap());
             }
@@ -330,7 +344,7 @@ mod tests {
             assert_eq!(rec_data, data.as_slice());
         }
 
-        for size in 11..=11_u16 {
+        for size in 1..=126_u16 {
             let mut data: std::vec::Vec<u8> = std::vec::Vec::with_capacity(size as usize);
             for i in 0..size {
                 data.push(i as u8);
