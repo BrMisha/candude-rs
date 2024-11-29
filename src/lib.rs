@@ -1,19 +1,13 @@
 #![cfg_attr(not(test), no_std)]
 
 pub const MAX_FRAME_SIZE: usize = 10;
-const X25: crc::Crc<u16> = crc::Crc::<u16>::new(&crc::CRC_16_IBM_SDLC);
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Counter {
-    Bytes(u8),
-    Frames(u8),
-}
+const CRC: crc::Crc<u16> = crc::Crc::<u16>::new(&crc::CRC_16_MODBUS);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CanDudeFrame {
     pub address: u8,
     pub data: arrayvec::ArrayVec<u8, MAX_FRAME_SIZE>,
-    pub counter: Counter,
+    pub counter: u8,
     pub end_of_packet: bool,
 }
 
@@ -22,11 +16,7 @@ impl CanDudeFrame {
         let address = id as u8 & 0b11_111;
         let end_of_packet = ((id >> 5) as u8 & 0b1) == 1;
 
-        let counter = (id >> 7) as u8 & 0b111_111;
-        let counter = match (id >> 6) as u8 & 0b1 {
-            0 => Counter::Bytes(counter),
-            _ => Counter::Frames(counter),
-        };
+        let counter = (id >> 6) as u8 & 0b111_1111;
 
         let mut arr: arrayvec::ArrayVec<u8, MAX_FRAME_SIZE> = arrayvec::ArrayVec::new();
         arr.push((id >> 13) as u8);
@@ -44,13 +34,7 @@ impl CanDudeFrame {
     pub fn to_canbus(&self) -> (u32, &[u8]) {
         let mut id: u32 = (self.address & 0b11111) as u32;
         id |= (self.end_of_packet as u32 & 1) << 5;
-        match self.counter {
-            Counter::Bytes(c) => id |= (c as u32 & 0b111111) << 7,
-            Counter::Frames(c) => {
-                id |= 1 << 6;
-                id |= (c as u32 & 0b111111) << 7;
-            }
-        }
+        id |= (self.counter as u32 & 0b111_1111) << 6;
 
         let mut iter = self.data.iter();
         if let Some(v) = iter.next() {
@@ -65,7 +49,7 @@ impl CanDudeFrame {
         (id, data)
     }
 }
-
+/*
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SizeType {
     SingleFrame,
@@ -141,7 +125,7 @@ impl<'a> CanDudePacketSender<'a> {
                 let mut end_of_packet = false;
 
                 if data.capacity() - data.len() >= 2 {
-                    let crc: [u8; 2] = X25.checksum(self.data).to_be_bytes();
+                    let crc: [u8; 2] = CRC.checksum(self.data).to_be_bytes();
                     data.extend(crc);
                     self.sent_counter += crc.len();
                     end_of_packet = true;
@@ -185,7 +169,7 @@ impl<'a> CanDudePacketSender<'a> {
                 let mut end_of_packet = false;
 
                 if data.capacity() - data.len() >= 2 {
-                    let crc: [u8; 2] = X25.checksum(self.data).to_be_bytes();
+                    let crc: [u8; 2] = CRC.checksum(self.data).to_be_bytes();
                     data.extend(crc);
                     self.sent_counter += crc.len();
                     end_of_packet = true;
@@ -293,7 +277,7 @@ impl<const CAPACITY: usize> CanDudePacketReceiver<CAPACITY> {
                                 _ => {
                                     let (data, crc) = frame.data.split_at(frame.data.len() - 2);
                                     self.data.try_extend_from_slice(data).ok()?;
-                                    let c = X25.checksum(self.data.as_slice()).to_be_bytes();
+                                    let c = CRC.checksum(self.data.as_slice()).to_be_bytes();
                                     (c == crc).then_some(())?;
                                 }
                             }
@@ -317,7 +301,7 @@ impl<const CAPACITY: usize> CanDudePacketReceiver<CAPACITY> {
                                 self.data.try_extend_from_slice(data).ok()?;
                                 (self.received_len == self.data.len() as u16).then_some(())?;
 
-                                let c = X25.checksum(self.data.as_slice()).to_be_bytes();
+                                let c = CRC.checksum(self.data.as_slice()).to_be_bytes();
                                 (c == crc).then_some(())?;
 
                                 self.state = CanDudePacketReceiverState::Received;
@@ -336,7 +320,7 @@ impl<const CAPACITY: usize> CanDudePacketReceiver<CAPACITY> {
         };
     }
 }
-
+*/
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -348,7 +332,7 @@ mod tests {
         d[1] = 23; // Set the second element
                    //let ss = CanDudePacket::new(&d);
     }
-
+/*
     #[test]
     fn can_dude_packet_read() {
         fn check(data: std::vec::Vec<u8>) {
@@ -417,7 +401,7 @@ mod tests {
 
                     let d = &res_data[..res_data.len() - 2];
                     let c = &res_data[res_data.len() - 2..];
-                    let crc: [u8; 2] = X25.checksum(d).to_be_bytes();
+                    let crc: [u8; 2] = CRC.checksum(d).to_be_bytes();
                     assert_eq!(d, data);
                     assert_eq!(c, crc);
 
@@ -448,7 +432,7 @@ mod tests {
                     let len = u16::from_be_bytes(res_data[..2].try_into().unwrap());
                     let d = &res_data[2..res_data.len() - 2];
                     let c = &res_data[res_data.len() - 2..];
-                    let crc: [u8; 2] = X25.checksum(d).to_be_bytes();
+                    let crc: [u8; 2] = CRC.checksum(d).to_be_bytes();
                     assert_eq!(len, data.len() as u16);
                     assert_eq!(d, data);
                     assert_eq!(c, crc);
@@ -468,20 +452,19 @@ mod tests {
             check(&data);
         }
     }
-
+*/
     #[test]
     fn from_to_canbus() {
         let id: u32 = 25 |  // address
-            1 << 5 |        // counter in bytes
-            50 << 7 |       // count
+            50 << 6 |       // count
             100 << 13 |     // byte 1
-            200 << (13+8); // byte 2
+            200 << (13+8);  // byte 2
         let data: [u8; 3] = [1, 2, 3];
 
         let result = CanDudeFrame::from_canbus(id, data.as_ref()).unwrap();
         assert_eq!(result.address, 25);
-        assert!(result.end_of_packet);
-        assert_eq!(result.counter, Counter::Bytes(50));
+        assert_eq!(result.end_of_packet, false);
+        assert_eq!(result.counter, 50);
         assert_eq!(result.data[0], 100);
         assert_eq!(result.data[1], 200);
         assert_eq!(result.data[2], 1);
@@ -490,26 +473,24 @@ mod tests {
 
         let result = result.to_canbus();
         assert_eq!(result.0 & 0b11111, 25);
-        assert_eq!(result.0 >> 5 & 0b1, 1);
-        assert_eq!(result.0 >> 6 & 0b1, 0);
-        assert_eq!(result.0 >> 7 & 0b111111, 50);
+        assert_eq!(result.0 >> 5 & 0b1, 0);
+        assert_eq!(result.0 >> 6 & 0b111_1111, 50);
         assert_eq!(result.0 >> 13 & 0xFF, 100);
         assert_eq!(result.0 >> (13 + 8) & 0xFF, 200);
         assert_eq!(result.1[0], 1);
         assert_eq!(result.1[1], 2);
         assert_eq!(result.1[2], 3);
 
-        let id: u32 = 5 |        // end of packet
-            1 << 6 |        // counter in frames
-            63 << 7 |       // count
-            10 << 13 |     // byte 1
-            20 << (13+8); // byte 2
+        let id: u32 = 5 |        // address
+            63 << 6 |       // count
+            10 << 13 |      // byte 1
+            20 << (13+8);   // byte 2
         let data: [u8; 8] = [1, 2, 3, 4, 5, 6, 7, 8];
 
         let result = CanDudeFrame::from_canbus(id, data.as_ref()).unwrap();
         assert_eq!(result.address, 5);
         assert!(!result.end_of_packet);
-        assert_eq!(result.counter, Counter::Frames(63));
+        assert_eq!(result.counter,63);
         assert_eq!(result.data[0], 10);
         assert_eq!(result.data[1], 20);
         assert_eq!(result.data[2], 1);
@@ -524,8 +505,7 @@ mod tests {
         let result = result.to_canbus();
         assert_eq!(result.0 & 0b11111, 5);
         assert_eq!(result.0 >> 5 & 0b1, 0);
-        assert_eq!(result.0 >> 6 & 0b1, 1);
-        assert_eq!(result.0 >> 7 & 0b111111, 63);
+        assert_eq!(result.0 >> 6 & 0b1111111, 63);
         assert_eq!(result.0 >> 13 & 0xFF, 10);
         assert_eq!(result.0 >> (13 + 8) & 0xFF, 20);
         assert_eq!(result.1[0], 1);
