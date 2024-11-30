@@ -255,80 +255,14 @@ impl<const CAPACITY: usize> CanDudePacketReceiver<CAPACITY> {
 
             }
         }
-        /*
-                let process = || -> Option<()> {
-                    // check sequential_is_valid
-                    match &self.state {
-                        CanDudePacketReceiverState::Received => return Some(()),
-                        CanDudePacketReceiverState::Receiving(counter) => {
-                            match counter {
-                                Counter::Bytes(current_len) => match &frame.counter {
-                                    Counter::Bytes(len) => (*current_len + 1
-                                        ..=*current_len + MAX_FRAME_SIZE as u8)
-                                        .contains(len)
-                                        .then_some(())?,
-                                    Counter::Frames(_) => return None,
-                                },
-                                // Ensure this is next frame
-                                Counter::Frames(current_count) => match &frame.counter {
-                                    Counter::Bytes(_) => return None,
-                                    Counter::Frames(count) => {
-                                        (*count == current_count + 1).then_some(())?;
-                                    }
-                                },
-                            }
-                        }
-                        _ => {}
-                    };
-
-                    match &frame.counter {
-                        Counter::Bytes(bytes) => {
-                            self.state = CanDudePacketReceiverState::Receiving(Counter::Bytes(*bytes));
-                            (self.data.len() + frame.data.len() == *bytes as usize).then_some(())?;
-
-                            match frame.end_of_packet {
-                                false => self.data.extend(frame.data),
-                                true => {
-                                    match self.data.len() {
-                                        // If this is first packet and it is last (single frame)
-                                        // Then just store all data
-                                        0 => self.data.extend(frame.data),
-                                        // Else extend data then check CRC
-                                        _ => {
-                                            let (data, crc) = frame.data.split_at(frame.data.len() - 2);
-                                            self.data.try_extend_from_slice(data).ok()?;
-                                            let c = CRC.checksum(self.data.as_slice()).to_be_bytes();
-                                            (c == crc).then_some(())?;
-                                        }
-                                    }
-
-                                    self.state = CanDudePacketReceiverState::Received;
-                                }
-                            }
-                        }
-                    }
-
-                    Some(())
-                };
-
-                match process() {
-                    Some(_) => {}
-                    None => self.reset(),
-                };*/
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn ttt() {
-        let mut d = [0u8; 200]; // Initialize all 200 elements with 0
-        d[0] = 1; // Set the first element
-        d[1] = 23; // Set the second element
-        //let ss = CanDudePacket::new(&d);
-    }
+    use rand::seq::SliceRandom; // Provides `shuffle` method
+    use rand::thread_rng;       // Provides a random number generator
 
     #[test]
     fn can_dude_packet_read() {
@@ -342,6 +276,22 @@ mod tests {
             let rec_data = rec.data().unwrap();
             assert_eq!(rec_data.len(), data.len());
             assert_eq!(rec_data, data.as_slice());
+
+            // shufled
+
+            let mut frames = std::vec::Vec::new();
+            while let Some(frame) = p.pop() {
+                frames.push(frame);
+            }
+            frames.shuffle(&mut thread_rng());
+
+            while !matches!(rec.state, CanDudePacketReceiverState::Received(_)) {
+                rec.push(p.pop().unwrap());
+            }
+            let rec_data = rec.data().unwrap();
+            assert_eq!(rec_data.len(), data.len());
+            assert_eq!(rec_data, data.as_slice());
+
         }
 
         for size in 1..=126_u16 {

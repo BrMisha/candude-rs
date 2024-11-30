@@ -7,3 +7,4 @@ edition = "2021"
 arrayvec = { version = "0.7.6", default-features = false }
 crc = "3.2.1"
 bit = "0.1.1"
+rand = "0.9.0-beta.1"
