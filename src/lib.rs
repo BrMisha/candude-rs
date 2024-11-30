@@ -201,7 +201,7 @@ impl<const CAPACITY: usize> CanDudePacketReceiver<CAPACITY> {
         }
 
         match &self.state {
-            CanDudePacketReceiverState::Received(_) => return,
+            CanDudePacketReceiverState::Received(_) => (),
             _ => {
                 // If single frames
                 if frame.end_of_packet && frame.counter as usize <= MAX_FRAME_SIZE {
@@ -237,7 +237,7 @@ impl<const CAPACITY: usize> CanDudePacketReceiver<CAPACITY> {
 
                                     let c = CRC.checksum(&self.data[data_r.clone()]);
 
-                                    if c.to_be_bytes() == &self.data[crc_r.clone()] {
+                                    if c.to_be_bytes() == self.data[crc_r.clone()] {
                                         self.state = CanDudePacketReceiverState::Received(data_r.len());
                                         self.first_frame_with_end = (0, 0);
                                         self.received_frame = 0;
@@ -262,10 +262,10 @@ impl<const CAPACITY: usize> CanDudePacketReceiver<CAPACITY> {
 mod tests {
     use super::*;
     use rand::seq::SliceRandom; // Provides `shuffle` method
-    use rand::thread_rng;       // Provides a random number generator
+    use rand::rng;       // Provides a random number generator
 
     #[test]
-    fn can_dude_packet_read() {
+    fn can_dude_packet_reader() {
         fn check(data: std::vec::Vec<u8>) {
             let mut p = CanDudePacketSender::new(12, &data).unwrap();
 
@@ -283,7 +283,7 @@ mod tests {
             while let Some(frame) = p.pop() {
                 frames.push(frame);
             }
-            frames.shuffle(&mut thread_rng());
+            frames.shuffle(&mut rng());
 
             while !matches!(rec.state, CanDudePacketReceiverState::Received(_)) {
                 rec.push(p.pop().unwrap());
