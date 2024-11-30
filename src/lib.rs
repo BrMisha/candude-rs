@@ -119,18 +119,20 @@ impl<'a> CanDudePacketSender<'a> {
                 Some(result)
             }
             SizeType::MultiFrame => {
-                let mut data =
-                    arrayvec::ArrayVec::try_from(&self.data[{
+                let mut data = arrayvec::ArrayVec::try_from(
+                    &self.data[{
                         let begin_index = self.sent_counter.min(self.data.len());
                         let end_index = (self.sent_counter + MAX_FRAME_SIZE).min(self.data.len());
                         begin_index..end_index
-                    }]).ok()?;
+                    }],
+                )
+                .ok()?;
 
                 self.sent_counter += data.len();
 
                 // append crc
                 while !data.is_full() && self.sent_counter < self.data.len() + self.crc.len() {
-                    data.push( self.crc[self.sent_counter-self.data.len()]);
+                    data.push(self.crc[self.sent_counter - self.data.len()]);
                     self.sent_counter += 1;
                 }
 
@@ -160,7 +162,7 @@ pub struct CanDudePacketReceiver<const CAPACITY: usize> {
     data: [u8; CAPACITY],
     state: CanDudePacketReceiverState,
     received_frame: u16,
-    first_frame_with_end: (usize, usize),   // frame number and received size
+    first_frame_with_end: (usize, usize), // frame number and received size
 }
 
 impl<const CAPACITY: usize> CanDudePacketReceiver<CAPACITY> {
@@ -209,50 +211,59 @@ impl<const CAPACITY: usize> CanDudePacketReceiver<CAPACITY> {
                         self.data[0..frame.data.len()].clone_from_slice(frame.data.as_slice());
                         self.state = CanDudePacketReceiverState::Received(frame.data.len());
                     }
-                }
-                else {
+                } else {
                     // Get range.
                     // First is number of frame (all frames except last with MAX_FRAME_SIZE)
                     let frame_number = (frame.counter - 1) as usize / MAX_FRAME_SIZE;
-                    if let Some(data) = self.data.get_mut(frame_number * MAX_FRAME_SIZE .. frame.counter as usize) {
+                    if let Some(data) = self
+                        .data
+                        .get_mut(frame_number * MAX_FRAME_SIZE..frame.counter as usize)
+                    {
                         //self.data[frame_number * MAX_FRAME_SIZE .. frame.counter as usize]
                         data.clone_from_slice(frame.data.as_slice());
 
                         // mark frame is received
                         self.received_frame.set_bit(frame_number, true);
                         // If there isn't frame with less pos
-                        if frame.end_of_packet && (self.first_frame_with_end.1 == 0 || self.first_frame_with_end.0 >= frame_number) {
+                        if frame.end_of_packet
+                            && (self.first_frame_with_end.1 == 0
+                                || self.first_frame_with_end.0 >= frame_number)
+                        {
                             self.first_frame_with_end.0 = frame_number;
                             self.first_frame_with_end.1 = frame.counter as usize;
                         }
 
                         // In case when multi-frame, we need to check from second item
-                        for pos in 1..(CAPACITY/MAX_FRAME_SIZE + (((CAPACITY % MAX_FRAME_SIZE) != 0) as usize)) {
+                        for pos in 1..(CAPACITY / MAX_FRAME_SIZE
+                            + (((CAPACITY % MAX_FRAME_SIZE) != 0) as usize))
+                        {
                             match self.received_frame.bit(pos) {
                                 false => break,
-                                true => if self.first_frame_with_end.0 == pos {
-                                    // All frames before marked as received
-                                    let data_r = 0..self.first_frame_with_end.1-2;
-                                    let crc_r = self.first_frame_with_end.1-2..self.first_frame_with_end.1;
+                                true => {
+                                    if self.first_frame_with_end.0 == pos {
+                                        // All frames before marked as received
+                                        let data_r = 0..self.first_frame_with_end.1 - 2;
+                                        let crc_r = self.first_frame_with_end.1 - 2
+                                            ..self.first_frame_with_end.1;
 
-                                    let c = CRC.checksum(&self.data[data_r.clone()]);
+                                        let c = CRC.checksum(&self.data[data_r.clone()]);
 
-                                    if c.to_be_bytes() == self.data[crc_r.clone()] {
-                                        self.state = CanDudePacketReceiverState::Received(data_r.len());
-                                        self.first_frame_with_end = (0, 0);
-                                        self.received_frame = 0;
-                                        // clear crc
-                                        self.data[crc_r].fill(0);
+                                        if c.to_be_bytes() == self.data[crc_r.clone()] {
+                                            self.state =
+                                                CanDudePacketReceiverState::Received(data_r.len());
+                                            self.first_frame_with_end = (0, 0);
+                                            self.received_frame = 0;
+                                            // clear crc
+                                            self.data[crc_r].fill(0);
+                                        }
+
+                                        break;
                                     }
-
-                                    break;
                                 }
                             }
-
                         }
                     }
                 }
-
             }
         }
     }
@@ -261,8 +272,8 @@ impl<const CAPACITY: usize> CanDudePacketReceiver<CAPACITY> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rand::seq::SliceRandom; // Provides `shuffle` method
-    use rand::rng;       // Provides a random number generator
+    use rand::rng;
+    use rand::seq::SliceRandom; // Provides `shuffle` method // Provides a random number generator
 
     #[test]
     fn can_dude_packet_reader() {
@@ -291,7 +302,6 @@ mod tests {
             let rec_data = rec.data().unwrap();
             assert_eq!(rec_data.len(), data.len());
             assert_eq!(rec_data, data.as_slice());
-
         }
 
         for size in 1..=126_u16 {
@@ -372,7 +382,7 @@ mod tests {
         let id: u32 = 25 |  // address
             50 << 6 |       // count
             100 << 13 |     // byte 1
-            200 << (13+8);  // byte 2
+            200 << (13+8); // byte 2
         let data: [u8; 3] = [1, 2, 3];
 
         let result = CanDudeFrame::from_canbus(id, data.as_ref()).unwrap();
@@ -398,13 +408,13 @@ mod tests {
         let id: u32 = 5 |        // address
             63 << 6 |       // count
             10 << 13 |      // byte 1
-            20 << (13+8);   // byte 2
+            20 << (13+8); // byte 2
         let data: [u8; 8] = [1, 2, 3, 4, 5, 6, 7, 8];
 
         let result = CanDudeFrame::from_canbus(id, data.as_ref()).unwrap();
         assert_eq!(result.address, 5);
         assert!(!result.end_of_packet);
-        assert_eq!(result.counter,63);
+        assert_eq!(result.counter, 63);
         assert_eq!(result.data[0], 10);
         assert_eq!(result.data[1], 20);
         assert_eq!(result.data[2], 1);
