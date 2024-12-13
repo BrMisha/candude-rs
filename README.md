@@ -16,16 +16,16 @@ So maximal data size capacity in frame is 8+2 = 10 bytes.
 ## Protocol description
 ### Extended ID field (29 bits)
 
-| 16 (2 bytes of data)  | 7 (counter)                   | 1 (end of packet)     | 5 (address)   |
-|-----------------------|-------------------------------|-----------------------|---------------|
-| first 2 bytes of data | Count of sent bytes of packet | Flag of end of packet | Slave address | 
+| 7 (counter)                   | 1 (end of packet)     | 16 (2 bytes of data)  | 5 (address)   |
+|-------------------------------|-----------------------|-----------------------|---------------|
+| Count of sent bytes of packet | Flag of end of packet | first 2 bytes of data | Slave address | 
 ### Data field
 One frame can contain up to 10 bytes of data. Part of data contains in the canbus address field.
 
 | Byte number | Location                     |
 |-------------|------------------------------|
-| 0           | 11...19 bites of extended ID |
-| 1           | 20...28 bites of extended ID |
+| 0           | 5...12 bites of extended ID  |
+| 1           | 13...20 bites of extended ID |
 | 2           | 0 byte of data field         |
 | 3           | 1 byte of data field         |
 | 4           | 2 byte of data field         |
