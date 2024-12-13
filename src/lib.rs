@@ -17,9 +17,9 @@ pub struct CanDudeFrame {
 impl CanDudeFrame {
     pub fn from_canbus(id: u32, data: &[u8]) -> Option<Self> {
         let address = id as u8 & 0b11_111;
-        let end_of_packet = ((id >> (5+16)) as u8 & 0b1) == 1;
+        let end_of_packet = ((id >> (5 + 16)) as u8 & 0b1) == 1;
 
-        let counter = (id >> (6+16)) as u8 & 0b111_1111;
+        let counter = (id >> (6 + 16)) as u8 & 0b111_1111;
 
         let mut arr: arrayvec::ArrayVec<u8, MAX_FRAME_SIZE> = arrayvec::ArrayVec::new();
         arr.push((id >> 5) as u8);
@@ -36,8 +36,8 @@ impl CanDudeFrame {
 
     pub fn to_canbus(&self) -> (u32, &[u8]) {
         let mut id: u32 = (self.address & 0b11111) as u32;
-        id |= (self.end_of_packet as u32 & 1) << (5+16);
-        id |= (self.counter as u32 & 0b111_1111) << (5+16+1);
+        id |= (self.end_of_packet as u32 & 1) << (5 + 16);
+        id |= (self.counter as u32 & 0b111_1111) << (5 + 16 + 1);
 
         let mut iter = self.data.iter();
         if let Some(v) = iter.next() {
@@ -382,7 +382,7 @@ mod tests {
         let id: u32 = 25 |  // address
             100 << 5 |     // byte 1
             200 << (5+8) | // byte 2
-            50 << (5+8+8+1);       // count
+            50 << (5+8+8+1); // count
         let data: [u8; 3] = [1, 2, 3];
 
         let result = CanDudeFrame::from_canbus(id, data.as_ref()).unwrap();
@@ -399,8 +399,8 @@ mod tests {
         assert_eq!(result.0 & 0b11111, 25);
         assert_eq!(result.0 >> 5 & 0xFF, 100);
         assert_eq!(result.0 >> (5 + 8) & 0xFF, 200);
-        assert_eq!(result.0 >> (5+16) & 0b1, 0);
-        assert_eq!(result.0 >> (5+16+1) & 0b111_1111, 50);
+        assert_eq!(result.0 >> (5 + 16) & 0b1, 0);
+        assert_eq!(result.0 >> (5 + 16 + 1) & 0b111_1111, 50);
         assert_eq!(result.1[0], 1);
         assert_eq!(result.1[1], 2);
         assert_eq!(result.1[2], 3);
@@ -408,7 +408,7 @@ mod tests {
         let id: u32 = 5 |        // address
             10 << 5 |       // byte 1
             20 << (5+8) |   // byte 2
-            63 << (5+8+8+1);       // count
+            63 << (5+8+8+1); // count
         let data: [u8; 8] = [1, 2, 3, 4, 5, 6, 7, 8];
 
         let result = CanDudeFrame::from_canbus(id, data.as_ref()).unwrap();
@@ -430,8 +430,8 @@ mod tests {
         assert_eq!(result.0 & 0b11111, 5);
         assert_eq!(result.0 >> 5 & 0xFF, 10);
         assert_eq!(result.0 >> (5 + 8) & 0xFF, 20);
-        assert_eq!(result.0 >> 5+16 & 0b1, 0);
-        assert_eq!(result.0 >> 5+16+1 & 0b1111111, 63);
+        assert_eq!(result.0 >> 5 + 16 & 0b1, 0);
+        assert_eq!(result.0 >> 5 + 16 + 1 & 0b1111111, 63);
         assert_eq!(result.1[0], 1);
         assert_eq!(result.1[1], 2);
         assert_eq!(result.1[2], 3);
