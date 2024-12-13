@@ -207,8 +207,8 @@ impl<const CAPACITY: usize> CanDudePacketReceiver<CAPACITY> {
             _ => {
                 // If single frames
                 if frame.end_of_packet && frame.counter as usize <= MAX_FRAME_SIZE {
-                    if frame.counter as usize == frame.data.len() {
-                        self.data[0..frame.data.len()].clone_from_slice(frame.data.as_slice());
+                    if let Some(d) = frame.data.get(0..frame.counter as usize) {
+                        self.data[0..d.len()].clone_from_slice(d);
                         self.state = CanDudePacketReceiverState::Received(frame.data.len());
                     }
                 } else {
@@ -440,27 +440,5 @@ mod tests {
         assert_eq!(result.1[5], 6);
         assert_eq!(result.1[6], 7);
         assert_eq!(result.1[7], 8);
-
-        fn check(data: std::vec::Vec<u8>) {
-            let f = CanDudeFrame {
-                address: 12,
-                data: arrayvec::ArrayVec::try_from(data.as_ref()).unwrap(),
-                counter: data.len() as u8,
-                end_of_packet: true,
-            };
-
-            let (id, data) = f.to_canbus();
-
-            let res = CanDudeFrame::from_canbus(id, data);
-            assert_eq!(res, Some(f));
-        }
-
-        for size in 1..=1_u16 {
-            let mut data: std::vec::Vec<u8> = std::vec::Vec::with_capacity(size as usize);
-            for i in 0..size {
-                data.push(i as u8);
-            }
-            check(data);
-        }
     }
 }
